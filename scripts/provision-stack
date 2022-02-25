@@ -1,0 +1,178 @@
+#!/bin/bash
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+SCRIPT_NAME="provision-stack"
+SCRIPT_DES=$''
+PROJECT_DIR="$SCRIPT_DIR/.."
+TEMPLATE_DIR="$PROJECT_DIR/templates"
+
+function log(){
+    echo -e "\e[92m$(date +"%r")\e[0m: \e[4;32m$SCRIPT_NAME\e[0m : >> $1"
+}
+
+function help(){
+    echo -e "\n\e[4m$SCRIPT_NAME\e[0m\n\n\t$SCRIPT_DES" 
+}
+
+while [[ $# -gt 0 ]]; do
+  key="$1"
+  case $key in
+    --help|-help|--h|-h)
+      help
+      exit 0
+      ;;
+    *)
+      log "Input not understood. See \e[3m--help\e[0m for information on using this command."
+      exit 1
+      ;;
+  esac
+done
+
+cd "$TEMPLATE_DIR"
+
+echo -e "---------- \e[2mCI/CD DEMO APPLICATION\e[0m ---------- \n" 
+echo -e "Provision the necessary AWS infrastructure for a cloud native "
+echo -e "web application through CloudFormation stack templates. \n"
+
+echo -e '\e[4mStack Options:\e[0m \e[3mweb\e[0m, \e[3mlambda\e[0m, \e[3mcicd\e[0m \n'
+read -p "Enter stack selection:  " STACK
+
+echo -e '\e[4mStack Actions:\e[0m \e[3mcreate\e[0m, \e[3mupdate\e[0m, \e[3mdelete\e[0m \n'
+read -p "Enter stack action: " ACTION
+
+if [ "$ACTION" != "create" ] && [ "$ACTION" != "update" ] && [ "$ACTION" != "delete" ]
+then
+  log "Input not understood. See \e[3m--help\e[0m for information on using this command."
+  exit 1
+fi
+
+if [ "$STACK" == "web" ]
+then
+
+  if [ "$ACTION" == "create" ]
+  then
+    read -p "Enter application name:  " APPLICATION
+    read -p "Enter domain name (without www.): " DOMAIN
+    read -p "Enter hosted zone ID: " HOSTED_ZONE
+    read -p "Enter ACM certificate ARN: " CERTIFICATE_ARN
+
+    log "Creating \e[1m${APPLICATION^}-WebStack\e[0m"
+    aws cloudformation create-stack \
+          --stack-name "${APPLICATION^}-WebStack" \
+          --template-body file://$STACK.yml \
+          --parameters ParameterKey=applicationName,ParameterValue=$APPLICATION \
+                        ParameterKey=domainName,ParameterValue=$DOMAIN \
+                        ParameterKey=certificateArn,ParameterValue=$CERTIFICATE_ARN \
+                        ParameterKey=hostedZoneId,ParameterValue=$HOSTED_ZONE
+
+  elif [ "$ACTION" == "update" ]
+  then
+    read -p "Enter application name:  " APPLICATION
+    read -p "Enter domain name (without \e[3mwww.\e[0m): " DOMAIN
+    read -p "Enter hosted zone ID: " HOSTED_ZONE
+    read -p "Enter ACM certificate ARN: " CERTIFICATE_ARN
+
+    log "Updating \e[1m${APPLICATION^}-WebStack\e[0m"
+    aws cloudformation update-stack \
+            --stack-name "${APPLICATION^}-WebStack" \
+            --template-body file://$STACK.yml \
+            --parameters ParameterKey=applicationName,ParameterValue=$APPLICATION \
+                          ParameterKey=domainName,ParameterValue=$DOMAIN \
+                          ParameterKey=certificateArn,ParameterValue=$CERTIFICATE_ARN \
+                          ParameterKey=hostedZoneId,ParameterValue=$HOSTED_ZONE
+
+  elif [ "$ACTION" == "delete" ]
+  then 
+    read -p "Enter application name:  " APPLICATION
+
+    log "Deleting \e[1m${APPLICATION^}-WebStack\e[0m"
+    aws cloudformation delete-stack \
+            --stack-name "${APPLICATION^}-WebStack"
+  fi
+
+elif [ "$STACK" == "lambda" ]
+then
+
+  if [ "$ACTION" == "create" ]
+  then
+    read -p "Enter application name:  " APPLICATION
+    read -p "Enter domain name (without \e[3mwww.\e[0m): " DOMAIN
+    read -p "Enter hosted zone ID: " HOSTED_ZONE
+    read -p "Enter ACM certificate ARN: " CERTIFICATE_ARN
+
+    log "Creating \e[1m${APPLICATION^}-LambdaStack\e[0m"
+    aws cloudformation create-stack \
+          --stack-name "${APPLICATION^}-LambdaStack" \
+          --template-body file://$STACK.yml \
+          --capabilities CAPABILITY_NAMED_IAM \
+          --parameters ParameterKey=applicationName,ParameterValue=$APPLICATION \
+                        ParameterKey=domainName,ParameterValue=$DOMAIN \
+                        ParameterKey=certificateArn,ParameterValue=$CERTIFICATE_ARN \
+                        ParameterKey=hostedZoneId,ParameterValue=$HOSTED_ZONE
+  
+  elif [ "$ACTION" == "update" ]
+  then
+    read -p "Enter application name:  " APPLICATION
+    read -p "Enter domain name (without \e[3mwww.\e[0m): " DOMAIN
+    read -p "Enter hosted zone ID: " HOSTED_ZONE
+    read -p "Enter ACM certificate ARN: " CERTIFICATE_ARN
+
+    log "Updating \e[1m${APPLICATION^}-LambdaStack\e[0m"
+    aws cloudformation update-stack \
+            --stack-name "${APPLICATION^}-LambdaStack" \
+            --template-body file://$STACK.yml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameters ParameterKey=applicationName,ParameterValue=$APPLICATION \
+                          ParameterKey=domainName,ParameterValue=$DOMAIN \
+                          ParameterKey=certificateArn,ParameterValue=$CERTIFICATE_ARN \
+                          ParameterKey=hostedZoneId,ParameterValue=$HOSTED_ZONE 
+
+  elif [ "$ACTION" == "delete" ]
+  then 
+    read -p "Enter application name:  " APPLICATION
+
+    log "Deleting \e[1m${APPLICATION^}-LambdaStack\e[0m"
+    aws cloudformation delete-stack \
+            --stack-name "${APPLICATION^}-LambdaStack"
+  fi
+
+elif [ "$STACK" == "cicd" ]
+then
+
+  if [ "$ACTION" == "create" ]
+  then
+    read -p "Enter application name:  " APPLICATION
+
+    log "Creating \e[1m${APPLICATION^}-CICDStack\e[0m"
+    aws cloudformation create-stack \
+          --stack-name "${APPLICATION^}-CICDStack" \
+          --template-body file://$STACK.yml \
+          --capabilities CAPABILITY_NAMED_IAM \
+          --parameters ParameterKey=applicationName,ParameterValue=$APPLICATION 
+
+  elif [ "$ACTION" == "update" ]
+  then
+    read -p "Enter application name:  " APPLICATION
+
+    log "Updating \e[1m${APPLICATION^}-CICDStack\e[0m"
+    aws cloudformation update-stack \
+            --stack-name "${APPLICATION^}-CICDStack" \
+            --template-body file://$STACK.yml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameters ParameterKey=applicationName,ParameterValue=$APPLICATION 
+
+  elif [ "$ACTION" == "delete" ]
+  then 
+    read -p "Enter application name:  " APPLICATION
+
+    log "Deleting \e[1m${APPLICATION^}-CICDStack\e[0m"
+    aws cloudformation delete-stack \
+            --stack-name "${APPLICATION^}-CICDStack"
+  fi
+
+else
+  log "Input not understood. See \e[3m--help\e[0m for information on using this command."
+  exit 1
+fi
+
+exit 0

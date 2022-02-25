@@ -1,0 +1,215 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: "Resources to hook a Lambda function into an API Gateway endpoint. The endpoint will produce a logstream into CloudWatch."
+
+Parameters:
+  applicationName:
+    Type: String
+    Description: Name of the web application
+    Default: demo
+  certificateArn:
+    Type: String
+    Description: ARN of the ACM certificate used to sign requests on the domain.
+  hostedZoneId:
+    Type: String
+    Description: Physical ID of the hosted zone where the domain is being served.
+  domainName:
+    Type: String
+    Description: Domain name that is hosting the application
+
+Resources:
+  LambdaExecutorRole:
+    Type: AWS::IAM::Role
+    Description: Role to allow Lambda functions to access other services
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: 
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${applicationName}-secrets-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: SecretManagerPermissions
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:UpdateSecret
+                Resource:
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${applicationName}*"
+      RoleName: !Sub ${applicationName}-lambda-executor
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties: 
+      FunctionName: !Sub ${applicationName}-lambda
+      Code:
+        ImageUri: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-lambda:latest"
+      PackageType: Image
+      Role: !GetAtt LambdaExecutorRole.Arn
+      Timeout: 180
+
+  LambdaAPIInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${API}/*
+    DependsOn:
+      - APIDeployment
+
+  API:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${applicationName}-api
+
+  RootResource: 
+    Type: 'AWS::ApiGateway::Resource'
+    Properties: 
+      RestApiId: !Ref API
+      ParentId: !GetAtt API.RootResourceId
+      PathPart: v1
+    DependsOn:
+      - API
+
+  LambdaResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref API
+      ParentId: !Ref RootResource
+      PathPart: demo
+    DependsOn:
+      - RootResource
+
+  LambdaResourceMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref API
+      ResourceId: !Ref LambdaResource
+      HttpMethod: POST
+      AuthorizationType: None
+      Integration:
+        Type: AWS_PROXY
+        # INTEGRATION HTTP METHOD MUST BE POST
+        #   NOTE: API Gateway transforms all incoming requests into POSTS
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations"
+    DependsOn:
+      - LambdaResource
+
+  LambdaResourceCORS:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId: !Ref API
+      ResourceId: !Ref LambdaResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+          ResponseTemplates:
+            application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+    DependsOn:
+      - LambdaResource
+
+  CloudWatchLoggerRole:
+    Type: AWS::IAM::Role
+    Description: Role to allow API Gateway to push logs to CloudWatch
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      RoleName: !Sub ${applicationName}-apigateway-logger
+
+  CloudWatch:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt CloudWatchLoggerRole.Arn
+  
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub ${AWS::StackName}-LogGroup
+      RetentionInDays: 30
+
+  APIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref API
+      Description: !Sub "${applicationName}'s RestAPI deployment"
+      StageName: prod
+      StageDescription:
+        AccessLogSetting:
+          DestinationArn: !GetAtt CloudWatchLogGroup.Arn
+        LoggingLevel: INFO
+        MetricsEnabled: True
+        MethodSettings:
+          - ResourcePath: "/*"
+            HttpMethod: "*"
+            LoggingLevel: INFO
+            MetricsEnabled: True
+    DependsOn:
+      - CloudWatch
+      - CloudWatchLogGroup
+      - API
+
+  APIDomainName:
+    Type: 'AWS::ApiGateway::DomainName'
+    Properties:
+      CertificateArn: !Ref certificateArn
+      DomainName: !Sub "api.${domainName}"
+      EndpointConfiguration:
+        Types:
+          - EDGE
+
+  APIBasePathMapping:
+    Type: 'AWS::ApiGateway::BasePathMapping'
+    Properties:
+      DomainName: !Ref APIDomainName
+      RestApiId: !Ref API
+      Stage: prod
+
+  APIRoute53RecordSetGroup:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId: !Ref hostedZoneId
+      RecordSets:
+        - Name: !Sub "api.${domainName}"
+          Type: A
+          AliasTarget:
+            HostedZoneId: !GetAtt APIDomainName.DistributionHostedZoneId
+            DNSName: !GetAtt APIDomainName.DistributionDomainName
+    DependsOn:
+      - APIDomainName

@@ -1,0 +1,25 @@
+#!/bin/bash
+
+if [ -z "$AWS_ACCOUNT_ID" ]
+then
+  read -p "Enter AWS Account ID: " AWS_ACCOUNT_ID
+fi
+
+if [ -z "$AWS_REGION" ]
+then
+  if [ -z "$AWS_DEFAULT_REGION" ]
+  then  
+    read -p "Enter AWS REGION:  " AWS_REGION
+  else
+    AWS_REGION=$AWS_DEFAULT_REGION
+  fi
+fi
+
+if [ "$1" == "private" ]
+then
+     aws ecr get-login-password --region $AWS_REGION |\
+          docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+elif [ "$1" == "public" ]
+then
+     aws ecr-public get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin public.ecr.aws
+fi

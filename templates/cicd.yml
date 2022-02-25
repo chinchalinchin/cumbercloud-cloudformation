@@ -1,0 +1,385 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: "Continuous integration and deployment resources for updates to a static website hosted through S3."
+
+Parameters:
+  applicationName:
+    Type: String
+    Description: Name of the web application
+    Default: demo
+    
+Resources:
+  LambdaECR:
+    Type: AWS::ECR::Repository
+    Description: ECR to hold Lambda image
+    Properties:
+      ImageScanningConfiguration: 
+        ScanOnPush: true
+      RepositoryName: !Sub "${applicationName}-lambda"
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ecr-codebuild-policy
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - "ecr:BatchGetImage"
+              - "ecr:GetDownloadUrlForLayer"
+      Tags:
+        - Key: Application
+          Value: !Ref applicationName
+
+  WebsiteRepo: 
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Sub "${applicationName}-web"
+      RepositoryDescription: !Sub "A repository for the ${applicationName} application website code."
+
+  LambdaRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Sub "${applicationName}-lambdas"
+      RepositoryDescription: !Sub "A repository for the ${applicationName} Lambda function source code."
+
+  CloudFormationRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Sub "${applicationName}-cloudformation"
+      RepositoryDescription: !Sub "A repository for the ${applicationName} infrastructure as code."
+
+  CloudWatchEventExecutor:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Action: 
+              - sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com            
+      Policies:
+        - PolicyName: !Sub "${applicationName}-cloudwatch-event-execution"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CodePipelinePermissions
+                Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${applicationName}*"
+      RoleName: !Sub ${applicationName}-cloudwatch-role
+
+  CodeBuildExecutor:
+    Type: AWS::IAM::Role
+    Description: Role to allow the pipeline's CodeBuild stage to access other AWS Services
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub ${applicationName}-codebuild-execution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: LogPermisisons
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Effect: Allow
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${applicationName}*
+              - Sid: CloudFrontPermissions
+                Action:
+                  - cloudfront:CreateInvalidation
+                Effect: Allow
+                Resource: '*'
+              - Sid: S3Permissions
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Effect: Allow
+                Resource: 
+                  - !Sub "arn:aws:s3:::${applicationName}*"
+              - Sid: CodeBuildPermissions
+                Action:
+                  - codebuild:CreateReportGroup
+                  - codebuild:CreateReport
+                  - codebuild:UpdateReport
+                  - codebuild:BatchPutTestCases
+                  - codebuild:BatchPutCodeCoverages
+                Effect: Allow
+                Resource:
+                  - !Sub "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/${applicationName}*"
+              - Sid: CodeCommitPermissions
+                Action:
+                  - codecommit:GitPull
+                Effect: Allow
+                Resource:
+                  - !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${applicationName}*" 
+              - Sid: SecretManagerPermissions
+                Action:
+                  - secretsmanager:GetSecretValue
+                Effect: Allow
+                Resource:
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${applicationName}*"
+              - Sid: ECRAuthPermissions
+                Action:
+                  - ecr:GetAuthorizationToken
+                Effect: Allow
+                Resource: '*'
+              - Sid: ECRPermissions
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:GetRepositoryPolicy
+                  - ecr:DescribeRepositories
+                  - ecr:ListImages
+                  - ecr:DescribeImages
+                  - ecr:BatchGetImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Effect: Allow
+                Resource: 
+                  - !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${applicationName}-*"
+              - Sid: LambdaPermissions
+                Action:
+                  - lambda:UpdateFunctionCode
+                Effect: Allow
+                Resource: 
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${applicationName}-*"
+      RoleName: !Sub ${applicationName}-codebuild-executor
+
+  CodePipelineExecutor:
+    Type: AWS::IAM::Role
+    Description: Role to allow Innolab Pipeline access to other AWS Services
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub ${applicationName}-codepipeline-role-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: IAMPermissions
+                Action: 
+                  - iam:PassRole
+                Effect: Allow
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${applicationName}*"
+              - Sid: CloudWatchPermissions
+                Action:
+                  - cloudwatch:*
+                Resource: "*"
+                Effect: Allow
+              - Sid: S3Permissions
+                Action:
+                  - s3:*
+                Effect: Allow
+                Resource: 
+                  - !Sub "arn:aws:s3:::${applicationName}*"
+              - Sid: CodeCommitPermissions
+                Action:
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetRepository
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                Effect: Allow
+                Resource: !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${applicationName}-*"
+              - Sid: CodeBuildPermissions
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuildBatches
+                  - codebuild:StartBuildBatch
+                Resource: 
+                  - !Sub "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:*/${applicationName}*"
+                Effect: Allow
+      RoleName: !Sub ${applicationName}-codepipeline-exector
+
+  PipelineArtifacts:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub "${applicationName}-pipeline-artifacts"
+      VersioningConfiguration:
+        Status: Enabled
+
+  CodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${applicationName}-codebuild"
+      Artifacts:
+        Type: CODEPIPELINE
+      ServiceRole: !GetAtt CodeBuildExecutor.Arn
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/standard:4.0
+        PrivilegedMode: true
+      Source:
+        Type: CODEPIPELINE
+      Cache:
+        Type: LOCAL
+        Modes: # You can specify one or more cache mode, 
+          - LOCAL_CUSTOM_CACHE
+          - LOCAL_DOCKER_LAYER_CACHE
+          - LOCAL_SOURCE_CACHE
+
+  WebCommitEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - 'CodeCommit Repository State Change'
+        resources:
+          - !GetAtt WebsiteRepo.Arn
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - master
+      Targets:
+        - Arn: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${applicationName}-web-pipeline"
+          RoleArn: !GetAtt CloudWatchEventExecutor.Arn
+          Id: !Sub ${applicationName}-web-codepipeline
+    DependsOn:
+      - WebsiteRepo
+
+  LambdaCommitEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - aws.codecommit
+        detail-type:
+          - 'CodeCommit Repository State Change'
+        resources:
+          - !GetAtt LambdaRepo.Arn
+        detail:
+          event:
+            - referenceCreated
+            - referenceUpdated
+          referenceType:
+            - branch
+          referenceName:
+            - master
+      Targets:
+        - Arn: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${applicationName}-lambda-pipeline"
+          RoleArn: !GetAtt CloudWatchEventExecutor.Arn
+          Id: !Sub ${applicationName}-lambda-codepipeline
+    DependsOn:
+      - LambdaRepo
+
+  WebCICDPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "${applicationName}-web-pipeline"
+      RoleArn: !GetAtt CodePipelineExecutor.Arn
+      ArtifactStore: 
+        Type: S3 
+        Location: !Ref PipelineArtifacts
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              InputArtifacts: []
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: !Sub "${applicationName}-web-source"    
+              Configuration:
+                RepositoryName: !GetAtt WebsiteRepo.Name
+                BranchName: master
+                PollForSourceChanges: false
+        - Name: Build   
+          Actions:
+            - Name: CodeBuild
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              InputArtifacts:
+                - Name: !Sub "${applicationName}-web-source"
+              OutputArtifacts:
+                - Name: !Sub "${applicationName}-web-build"
+              Configuration: 
+                ProjectName: !Ref CodeBuild
+                EnvironmentVariables: !Sub '[{"name":"APPLICATION","value":"${applicationName}","type":"PLAINTEXT"},{ "name":"AWS_ACCOUNT_ID","value":"${AWS::AccountId}","type": "PLAINTEXT"}]'
+    DependsOn:
+      - CodeBuild
+      - WebsiteRepo
+
+  LambdaCICDPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "${applicationName}-lambda-pipeline"
+      RoleArn: !GetAtt CodePipelineExecutor.Arn
+      ArtifactStore: 
+        Type: S3 
+        Location: !Ref PipelineArtifacts
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              InputArtifacts: []
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: !Sub "${applicationName}-lambda-source"    
+              Configuration:
+                RepositoryName: !GetAtt LambdaRepo.Name
+                BranchName: master
+                PollForSourceChanges: false
+        - Name: Build   
+          Actions:
+            - Name: CodeBuild
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              InputArtifacts:
+                - Name: !Sub "${applicationName}-lambda-source"
+              OutputArtifacts:
+                - Name: !Sub "${applicationName}-lambda-build"
+              Configuration: 
+                ProjectName: !Ref CodeBuild
+                EnvironmentVariables: !Sub '[{"name":"APPLICATION","value":"${applicationName}","type":"PLAINTEXT"},{ "name": "AWS_ACCOUNT_ID", "value": "${AWS::AccountId}", "type": "PLAINTEXT"}]'
+    DependsOn:
+      - CodeBuild
+      - WebsiteRepo
