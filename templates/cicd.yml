@@ -104,6 +104,7 @@ Resources:
                 Resource: '*'
               - Sid: S3Permissions
                 Action:
+                  - s3:List*
                   - s3:PutObject
                   - s3:GetObject
                   - s3:DeleteObject
