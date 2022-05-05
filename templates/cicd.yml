@@ -11,7 +11,6 @@ Parameters:
 Resources:
   LambdaEmailECR:
     Type: AWS::ECR::Repository
-    Description: ECR to hold image of email lambda
     Properties:
       ImageScanningConfiguration:
         ScanOnPush: true
@@ -33,7 +32,6 @@ Resources:
 
   LambdaForwardECR:
     Type: AWS::ECR::Repository
-    Description: ECR to hold image of email forwarding Lambda
     Properties:
       ImageScanningConfiguration: 
         ScanOnPush: true
@@ -74,6 +72,8 @@ Resources:
   CloudWatchEventExecutor:
     Type: AWS::IAM::Role
     Properties:
+      Description: !Sub Assumed role for CloudWatchEvent to invoke ${applicationName} CodePipeline
+      Path: !Sub "/${applicationName}/"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -93,11 +93,15 @@ Resources:
                 Action: codepipeline:StartPipelineExecution
                 Resource: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${applicationName}*"
       RoleName: !Sub ${applicationName}-cloudwatch-role
+      Tags:
+        - Key: Application
+          Value: !Ref applicationName
 
   CodeBuildExecutor:
     Type: AWS::IAM::Role
-    Description: Role to allow the pipeline's CodeBuild stage to access other AWS Services
     Properties:
+      Description: !Sub Assumed role for CodeBuild to allow access to ${applicationName} resources.
+      Path: !Sub "/${applicationName}/"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -186,11 +190,15 @@ Resources:
                 Resource: 
                   - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${applicationName}-*"
       RoleName: !Sub ${applicationName}-codebuild-executor
+      Tags:
+        - Key: Application
+          Value: !Ref applicationName
 
   CodePipelineExecutor:
     Type: AWS::IAM::Role
-    Description: Role to allow Innolab Pipeline access to other AWS Services
     Properties:
+      Description: !Sub Assumed role for CodePipeline to access ${applicationName} resources
+      Path: !Sub "/${applicationName}/"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -241,6 +249,9 @@ Resources:
                   - !Sub "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:*/${applicationName}*"
                 Effect: Allow
       RoleName: !Sub ${applicationName}-codepipeline-exector
+      Tags:
+        - Key: Application
+          Value: !Ref applicationName
 
   PipelineArtifacts:
     Type: AWS::S3::Bucket

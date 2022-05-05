@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: "Resources to hook a Lambda function into an API Gateway endpoint. The endpoint will produce a logstream into CloudWatch."
+Description: "Resources to hook a Lambda function into API Gateway endpoints, SES receipt rules and CloudWatch events. Contains all IAM policies, roles and secondary resources for the deployment."
 
 Parameters:
   applicationName:
@@ -20,8 +20,9 @@ Parameters:
 Resources:
   LambdaExecutorRole:
     Type: AWS::IAM::Role
-    Description: Role to allow Lambda functions to access other services
     Properties:
+      Description: !Sub Assumed role for Lambda to access ${applicationName} resource
+      Path: !Sub "/${applicationName}/"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -62,9 +63,9 @@ Resources:
 
   APILoggerRole:
     Type: AWS::IAM::Role
-    Description: Role to allow API Gateway to push logs to CloudWatch
     Properties:
-      # Path: !Sub "/${applicationName}/"
+      Description: !Sub Assumed role for API Gateway to accecss ${applicationName} resources.
+      Path: !Sub "/${applicationName}/"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -238,7 +239,7 @@ Resources:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestAPI
-      ParentId: !Ref InnoLabRootResource
+      ParentId: !Ref RootResource
       PathPart: mail
   
   SendEmailMethod:
@@ -260,7 +261,7 @@ Resources:
     Properties:
       AuthorizationType: NONE
       RestApiId: !Ref RestAPI
-      ResourceId: !Ref PathResource
+      ResourceId: !Ref SendEmailResource
       HttpMethod: OPTIONS
       Integration:
         IntegrationResponses:

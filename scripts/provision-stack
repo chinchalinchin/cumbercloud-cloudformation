@@ -67,7 +67,7 @@ do
   read -p "Enter application name:  " APPLICATION
 done
 
-if [[ "$STACK" == "web" || "$STACK" =="lambda" ]] && [[ "$ACTION" == "create" || "$ACTION" == "update" ]]
+if [[ "$STACK" == "web" || "$STACK" == "lambda" ]] && [[ "$ACTION" == "create" || "$ACTION" == "update" ]]
 then
   while [[ -z "$DOMAIN" ]]
   do
