@@ -82,6 +82,40 @@ Resources:
         - Key: "Application"
           Value: !Ref applicationName
 
+    TokenLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: !Sub Lambda function for forwarding emails sent to the ${applicationName}-email S3 bucket to an external address. Triggered by an SES Receipt Ruleset.
+      FunctionName: !Sub ${applicationName}-token
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-token:latest
+      PackageType: Image
+      Role: !GetAtt LambdaExecutorRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          USERPOOL: !Ref CognitoUserPool
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
+
+  RegisterLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: !Sub Lambda function for forwarding emails sent to the ${applicationName}-email S3 bucket to an external address. Triggered by an SES Receipt Ruleset.
+      FunctionName: !Sub ${applicationName}-register
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-register:latest
+      PackageType: Image
+      Role: !GetAtt LambdaExecutorRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          USERPOOL: !Ref CognitoUserPool
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
+          
   ForwardEmailLambda:
     Type: AWS::Lambda::Function
     Properties: 

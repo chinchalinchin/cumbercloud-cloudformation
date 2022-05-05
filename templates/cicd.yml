@@ -51,6 +51,48 @@ Resources:
         - Key: Application
           Value: !Ref applicationName
 
+  LambdaTokenECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageScanningConfiguration: 
+        ScanOnPush: true
+      RepositoryName: !Sub "${applicationName}-token"
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ECRCodeBuildPermissions
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - "ecr:BatchGetImage"
+              - "ecr:GetDownloadUrlForLayer"
+      Tags:
+        - Key: Application
+          Value: !Ref applicationName
+  
+  LambdaForwardECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageScanningConfiguration: 
+        ScanOnPush: true
+      RepositoryName: !Sub "${applicationName}-register"
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ECRCodeBuildPermissions
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - "ecr:BatchGetImage"
+              - "ecr:GetDownloadUrlForLayer"
+      Tags:
+        - Key: Application
+          Value: !Ref applicationName
+
   WebsiteRepo: 
     Type: AWS::CodeCommit::Repository
     Properties:
