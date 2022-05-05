@@ -2,9 +2,17 @@
 
 This repository houses the **CloudFormation** templates for provisioning the resources necessary for my personal website and portfolio. The templates in this repository will provision several **Lambda** functions, their event integrations (e.g. **APIGateway**, **CloudWatch**, etc.), a **Cloudfront** distribution and the **CodePipeline** CICD resources for continuously deploying changes to these components. The source code for the backend **Lambda** functions can be found [here](https://github.com/chinchalinchin/cumbercloud-lambdas). The source code for the frontend served through the **Cloudfront** distribution can be found [here](https://github.com/chinchalinchin/cumbercloud-web).
 
+## Hard Dependencies
+
+As much of the **AWS** configuration as possible is included in the **CloudFormation** templates. However, there are several resources that need provisioned manually,
+
+1. [Route43 Domain name](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/domain-register.html)
+2. [Amazon Certificate Manager SSL certificate](https://docs.aws.amazon.com/acm/latest/userguide/acm-overview.html)
+3. [Hosted Zone](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/CreatingHostedZone.html)
+
 ## Quickstart
 
-Copy the *.sample.env* into a new *.env* and configure the values for your environment. A helper script will read in the values from this value and use them to post the **Cloudformation** templates to **AWS**. If the script does not detect this file or the values are empty, it will prompt the user to input their values into the command line.
+Copy the *.sample.env* into a new *.env* and configure the values for your environment. See comments in file for more information on each variable. A helper script will read in the values from this value and use them to post the **Cloudformation** templates to **AWS**. If the script does not detect this file or the values are empty, it will prompt the user to input their values into the command line.
 
 To provision a stack, execute the following script,
 
@@ -43,10 +51,22 @@ git push
 
 This will kick off the pipeline again. Assuming the `web` and `lambda` stack have been stood up, you should now have a fully functional web application and a serverless backend hooked into a **CodeCommit**-**CodeBuild**-**CodePipeline** CICD pipeline. Simply push new code to the **CodeCommit** repositories to redeploy.
 
+## Linter
+
+Install [cfn-lint](https://github.com/aws-cloudformation/cfn-lint),
+
+```shell
+pip install -r requirements.txt
+```
+
+And then invoke the helper script,
+
+```shell
+./scripts/lint-templates
+```
+
 ## Notes
 
 ### ACM SSL Certificate
 
-The certificate used to sign requests must be of the form
-
-`*.domain`
+1. The certificate used to sign requests must be of the form `*.domain`

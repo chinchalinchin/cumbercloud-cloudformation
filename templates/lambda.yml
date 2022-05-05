@@ -85,6 +85,7 @@ Resources:
   ForwardEmailLambda:
     Type: AWS::Lambda::Function
     Properties: 
+      Description: !Sub Lambda function for forwarding emails sent to the ${applicationName}-email S3 bucket to an external address. Triggered by an SES Receipt Ruleset.
       FunctionName: !Sub ${applicationName}-forward-email
       Code:
         ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-forward-email:latest
@@ -98,10 +99,14 @@ Resources:
           MailSender: design@cumberland-cloud.com
           MailRecipient: chinchalinchin@gmail.com
           Region: !Sub ${AWS::Region}
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
 
   SendEmailLambda:
     Type: AWS::Lambda::Function
     Properties:
+      Description: !Sub Lambda function for sending emails from an ${applicationName}. Triggered by an API Gateway endpoint.
       FunctionName: !Sub ${applicationName}-send-email
       Code:
         ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-send-email:latest
@@ -113,11 +118,18 @@ Resources:
           MailSender: form@cumberland-cloud.com
           MailRecipient: design@cumberland-cloud.com
           Region: !Sub ${AWS::Region}
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
 
   RestAPI:
     Type: AWS::ApiGateway::RestApi
     Properties:
+      Description: !Sub REST API for ${applicationName} backend functionality
       Name: !Sub ${applicationName}-rest-api
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
 
   CloudWatch:
     Type: AWS::ApiGateway::Account
@@ -129,12 +141,15 @@ Resources:
     Properties: 
       LogGroupName: !Sub ${applicationName}-log-group
       RetentionInDays: 30
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
 
   RestAPIDeployment:
     Type: AWS::ApiGateway::Deployment
     Properties:
       RestApiId: !Ref RestAPI
-      Description: !Sub "${applicationName}'s RestAPI deployment"
+      Description: !Sub "${applicationName} Rest API production deployment"
       StageName: production
       StageDescription:
         AccessLogSetting:
