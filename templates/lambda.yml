@@ -161,6 +161,9 @@ Resources:
             HttpMethod: "*"
             LoggingLevel: INFO
             MetricsEnabled: True
+    DependsOn:
+      - SendEmailMethod
+      - SendEmailCORSMethod
 
   AuthDomain:
     Type: AWS::Cognito::UserPoolDomain
@@ -308,6 +311,9 @@ Resources:
       EndpointConfiguration:
         Types:
           - EDGE
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
 
   RestAPIBasePathMapping:
     Type: 'AWS::ApiGateway::BasePathMapping'
