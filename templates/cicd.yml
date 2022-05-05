@@ -72,7 +72,7 @@ Resources:
         - Key: Application
           Value: !Ref applicationName
   
-  LambdaForwardECR:
+  LambdaRegisterECR:
     Type: AWS::ECR::Repository
     Properties:
       ImageScanningConfiguration: 
@@ -134,7 +134,7 @@ Resources:
                 Effect: Allow
                 Action: codepipeline:StartPipelineExecution
                 Resource: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${applicationName}*"
-      RoleName: !Sub ${applicationName}-cloudwatch-role
+      RoleName: !Sub ${applicationName}-cloudwatch-executor
       Tags:
         - Key: Application
           Value: !Ref applicationName
@@ -214,6 +214,7 @@ Resources:
                   - ecr:BatchCheckLayerAvailability
                   - ecr:GetDownloadUrlForLayer
                   - ecr:GetRepositoryPolicy
+                  - ecr:SetRepositoryPolicy
                   - ecr:DescribeRepositories
                   - ecr:ListImages
                   - ecr:DescribeImages
@@ -290,7 +291,7 @@ Resources:
                 Resource: 
                   - !Sub "arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:*/${applicationName}*"
                 Effect: Allow
-      RoleName: !Sub ${applicationName}-codepipeline-exector
+      RoleName: !Sub ${applicationName}-codepipeline-executor
       Tags:
         - Key: Application
           Value: !Ref applicationName
