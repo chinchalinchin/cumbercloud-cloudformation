@@ -187,6 +187,7 @@ Resources:
           Value: "grant@cumberland-cloud.com"
         - Name: "name"
           Value: "Grant Moore"
+          
   APIClient:
     Type: AWS::Cognito::UserPoolClient
     Properties:

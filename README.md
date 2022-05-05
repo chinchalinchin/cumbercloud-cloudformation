@@ -12,12 +12,14 @@ To provision a stack, execute the following script,
 ./scripts/provision-stack
 ```
 
-The script will prompt the user to choose a stack to provision. The choices are: `web`, `lambda` and `cicd`. 
+The script will prompt the user to choose a stack to provision. The choices are: `web`, `lambda` and `cicd`. After the user selects a stack, the script will prompt the user to choose an action. The choices are `create`, `update` and `delete`. If this is the first deployment, the user should select `create`.
 
-The `cicd` stack should be stood up before the other two. This stack contains all the resources for continous integration and deployment, such as **CodeCommit** repos, **S3** buckets and **ECR** repos. Once the `cicd` stack is stood up, the pipelines will initially fail for two reason: 
+The `cicd` stack should be stood up before the other two stacks. This stack contains all the resources for continous integration and deployment, such as **CodeCommit** repos, **S3** buckets and **ECR** repos. In particular, the **ECR** repos must exist before the **Lambda** functions can be deployed, otherwise the stack deployment will fail. (This is the only hard dependency; technically the `web` stack can be stood up at anytime; the **Cloudfront** distribution will just be serving an empty **S3** bucket until the `cicd` stack can build and deploy the frontend app into the bucket.). 
+
+Once the `cicd` stack is stood up, the pipelines will initially fail for two reasons: 
 
 1. The **CodeCommit** repositories are empty. 
-2. **CodePipeline** has no resource to deploy to.
+2. **CodePipeline** has no resources to deploy to.
 
 To solve the second problem, stand up the `web` and `lambda` stack with `./scripts/provision-stack`.
 
