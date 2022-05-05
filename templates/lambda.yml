@@ -43,81 +43,230 @@ Resources:
                   - secretsmanager:UpdateSecret
                 Resource:
                   - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${applicationName}*"
+              - Sid: SESPermissions
+                Effect: Allow
+                Action:
+                  - ses:Send*
+                  - s3:GetObject
+                Resource: 
+                  - !Sub arn:aws:s3:::${applicationName}-email/*
+                  - !Sub arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/*
+              - Sid: LogPermissions
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                  - logs:PutLogEvents
+                Resource: '*'
       RoleName: !Sub ${applicationName}-lambda-executor
 
-  LambdaFunction:
+  APILoggerRole:
+    Type: AWS::IAM::Role
+    Description: Role to allow API Gateway to push logs to CloudWatch
+    Properties:
+      # Path: !Sub "/${applicationName}/"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      RoleName: !Sub ${applicationName}-apigateway-executor
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
+
+  ForwardEmailLambda:
     Type: AWS::Lambda::Function
     Properties: 
-      FunctionName: !Sub ${applicationName}-lambda
+      FunctionName: !Sub ${applicationName}-forward-email
       Code:
-        ImageUri: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-lambda:latest"
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-forward-email:latest
       PackageType: Image
       Role: !GetAtt LambdaExecutorRole.Arn
-      Timeout: 180
+      Timeout: 60
+      Environment:
+        Variables:
+          MailS3Bucket: !Sub ${applicationName}-email
+          MailS3Prefix: mail
+          MailSender: design@cumberland-cloud.com
+          MailRecipient: chinchalinchin@gmail.com
+          Region: !Sub ${AWS::Region}
 
-  LambdaAPIInvoke:
-    Type: AWS::Lambda::Permission
+  SendEmailLambda:
+    Type: AWS::Lambda::Function
     Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !GetAtt LambdaFunction.Arn
-      Principal: apigateway.amazonaws.com
-      SourceArn: 
-        !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${API}/*
-    DependsOn:
-      - APIDeployment
+      FunctionName: !Sub ${applicationName}-send-email
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-send-email:latest
+      PackageType: Image
+      Role: !GetAtt LambdaExecutorRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          MailSender: form@cumberland-cloud.com
+          MailRecipient: design@cumberland-cloud.com
+          Region: !Sub ${AWS::Region}
 
-  API:
+  RestAPI:
     Type: AWS::ApiGateway::RestApi
     Properties:
-      Name: !Sub ${applicationName}-api
+      Name: !Sub ${applicationName}-rest-api
+
+  CloudWatch:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt APILoggerRole.Arn
+  
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: 
+      LogGroupName: !Sub ${applicationName}-log-group
+      RetentionInDays: 30
+
+  RestAPIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref RestAPI
+      Description: !Sub "${applicationName}'s RestAPI deployment"
+      StageName: production
+      StageDescription:
+        AccessLogSetting:
+          DestinationArn: !GetAtt CloudWatchLogGroup.Arn
+        LoggingLevel: INFO
+        MetricsEnabled: True
+        MethodSettings:
+          - ResourcePath: "/*"
+            HttpMethod: "*"
+            LoggingLevel: INFO
+            MetricsEnabled: True
+
+  AuthDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      Domain: !Ref applicationName
+
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${applicationName}-userpool
+      UsernameConfiguration:
+        CaseSensitive: false
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireSymbols: true
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: 3
+      Schema:
+        - AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Name: email
+        - AttributeDataType: String
+          DeveloperOnlyAttribute: false
+          Mutable: true
+          Name: name
+  
+  CognitoAdmin:
+    Type: "AWS::Cognito::UserPoolUser"
+    Properties:
+      Username: "gmoore@cumberland-cloud.com"
+      UserPoolId: !Ref CognitoUserPool
+      UserAttributes:
+        - Name: "email"
+          Value: "grant@cumberland-cloud.com"
+        - Name: "name"
+          Value: "Grant Moore"
+  APIClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CognitoUserPool
+      ClientName: !Sub ${applicationName}-api-client
+      AllowedOAuthFlows:
+        - implicit
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      CallbackURLs:
+        - !Sub "https://${domainName}"
+      ExplicitAuthFlows:
+        - "ALLOW_CUSTOM_AUTH"
+        - "ALLOW_REFRESH_TOKEN_AUTH"
+        - "ALLOW_USER_PASSWORD_AUTH"
+        - "ALLOW_USER_SRP_AUTH"
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: "minutes"
+        IdToken: "minutes"
+        RefreshToken: "days"
+      SupportedIdentityProviders:
+        - COGNITO
+
+  ApiGatewayAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      RestApiId: !Ref RestAPI
+      Name: !Sub ${applicationName}-api-authorizer
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.authorization
+      ProviderARNs:
+        - !GetAtt CognitoUserPool.Arn
 
   RootResource: 
     Type: 'AWS::ApiGateway::Resource'
     Properties: 
-      RestApiId: !Ref API
-      ParentId: !GetAtt API.RootResourceId
+      RestApiId: !Ref RestAPI
+      ParentId: !GetAtt RestAPI.RootResourceId
       PathPart: v1
-    DependsOn:
-      - API
 
-  LambdaResource:
+  SendEmailResource:
     Type: AWS::ApiGateway::Resource
     Properties:
-      RestApiId: !Ref API
-      ParentId: !Ref RootResource
-      PathPart: demo
-    DependsOn:
-      - RootResource
-
-  LambdaResourceMethod:
+      RestApiId: !Ref RestAPI
+      ParentId: !Ref InnoLabRootResource
+      PathPart: mail
+  
+  SendEmailMethod:
     Type: 'AWS::ApiGateway::Method'
     Properties:
-      RestApiId: !Ref API
-      ResourceId: !Ref LambdaResource
+      RestApiId: !Ref RestAPI
+      ResourceId: !Ref SendEmailResource
       HttpMethod: POST
-      AuthorizationType: None
+      AuthorizationType: NONE
       Integration:
         Type: AWS_PROXY
         # INTEGRATION HTTP METHOD MUST BE POST
-        #   NOTE: API Gateway transforms all incoming requests into POSTS
+         # NOTE: API Gateway transforms all incoming requests into POSTS
         IntegrationHttpMethod: POST
-        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations"
-    DependsOn:
-      - LambdaResource
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SendEmailLambda.Arn}/invocations"
 
-  LambdaResourceCORS:
+  SendEmailCORSMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       AuthorizationType: NONE
-      RestApiId: !Ref API
-      ResourceId: !Ref LambdaResource
+      RestApiId: !Ref RestAPI
+      ResourceId: !Ref PathResource
       HttpMethod: OPTIONS
       Integration:
         IntegrationResponses:
         - StatusCode: 200
           ResponseParameters:
             method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-            method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+            method.response.header.Access-Control-Allow-Methods: "'*'"
             method.response.header.Access-Control-Allow-Origin: "'*'"
           ResponseTemplates:
             application/json: ''
@@ -133,59 +282,8 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: false
             method.response.header.Access-Control-Allow-Methods: false
             method.response.header.Access-Control-Allow-Origin: false
-    DependsOn:
-      - LambdaResource
 
-  CloudWatchLoggerRole:
-    Type: AWS::IAM::Role
-    Description: Role to allow API Gateway to push logs to CloudWatch
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - apigateway.amazonaws.com
-            Action:
-              - "sts:AssumeRole"
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
-      RoleName: !Sub ${applicationName}-apigateway-logger
-
-  CloudWatch:
-    Type: AWS::ApiGateway::Account
-    Properties:
-      CloudWatchRoleArn: !GetAtt CloudWatchLoggerRole.Arn
-  
-  CloudWatchLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties: 
-      LogGroupName: !Sub ${AWS::StackName}-LogGroup
-      RetentionInDays: 30
-
-  APIDeployment:
-    Type: AWS::ApiGateway::Deployment
-    Properties:
-      RestApiId: !Ref API
-      Description: !Sub "${applicationName}'s RestAPI deployment"
-      StageName: prod
-      StageDescription:
-        AccessLogSetting:
-          DestinationArn: !GetAtt CloudWatchLogGroup.Arn
-        LoggingLevel: INFO
-        MetricsEnabled: True
-        MethodSettings:
-          - ResourcePath: "/*"
-            HttpMethod: "*"
-            LoggingLevel: INFO
-            MetricsEnabled: True
-    DependsOn:
-      - CloudWatch
-      - CloudWatchLogGroup
-      - API
-
-  APIDomainName:
+  RestAPIDomainName:
     Type: 'AWS::ApiGateway::DomainName'
     Properties:
       CertificateArn: !Ref certificateArn
@@ -194,14 +292,14 @@ Resources:
         Types:
           - EDGE
 
-  APIBasePathMapping:
+  RestAPIBasePathMapping:
     Type: 'AWS::ApiGateway::BasePathMapping'
     Properties:
-      DomainName: !Ref APIDomainName
-      RestApiId: !Ref API
-      Stage: prod
+      DomainName: !Ref RestAPIDomainName
+      RestApiId: !Ref RestAPI
+      Stage: production
 
-  APIRoute53RecordSetGroup:
+  RestAPIRoute53RecordSetGroup:
     Type: AWS::Route53::RecordSetGroup
     Properties:
       HostedZoneId: !Ref hostedZoneId
@@ -209,7 +307,16 @@ Resources:
         - Name: !Sub "api.${domainName}"
           Type: A
           AliasTarget:
-            HostedZoneId: !GetAtt APIDomainName.DistributionHostedZoneId
-            DNSName: !GetAtt APIDomainName.DistributionDomainName
-    DependsOn:
-      - APIDomainName
+            HostedZoneId: !GetAtt RestAPIDomainName.DistributionHostedZoneId
+            DNSName: !GetAtt RestAPIDomainName.DistributionDomainName
+
+  SendEmailApiGatewayInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt SendEmailLambda.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestAPI}/production/*
+
+  # TODO: THIS: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ses-receiptrule.html

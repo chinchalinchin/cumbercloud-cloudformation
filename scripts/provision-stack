@@ -2,9 +2,14 @@
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 SCRIPT_NAME="provision-stack"
-SCRIPT_DES=$''
+SCRIPT_DES=$'This script will provision the stacks found in the \e[1mtemplates\e[0m directory. It is essentially a \n\twrapper around calls to \e[1maws cloudformation\e[0m. Therefore, you must configure your AWS CLI before\n\texecuting this script. In addition, this script will read in several key pieces of information: \n\tyour domain name, the ACM SSL certificiate ARN for your domain, the physical ID of your domain\'s \n\thosted zone, and the application name with which you want to tag your resources. You must provision \n\tthe first three items in this list manually and feed them into the script when prompted; the last \n\titem is arbitrary and user-defined. The application name is only used to name and tag resources.'
 PROJECT_DIR="$SCRIPT_DIR/.."
 TEMPLATE_DIR="$PROJECT_DIR/templates"
+
+if [ -f "$PROJECT_DIR/.env" ]
+then
+  source "$PROJECT_DIR/.env"
+fi
 
 function log(){
     echo -e "\e[92m$(date +"%r")\e[0m: \e[4;32m$SCRIPT_NAME\e[0m : >> $1"
@@ -30,20 +35,52 @@ done
 
 cd "$TEMPLATE_DIR"
 
-echo -e "---------- \e[2mCI/CD DEMO APPLICATION\e[0m ---------- \n" 
+echo -e "---------- \e[2mCUMBERLAND CLOUD APPLICATION\e[0m ---------- \n" 
 echo -e "Provision the necessary AWS infrastructure for a cloud native "
 echo -e "web application through CloudFormation stack templates. \n"
 
-echo -e '\e[4mStack Options:\e[0m \e[3mweb\e[0m, \e[3mlambda\e[0m, \e[3mcicd\e[0m \n'
-read -p "Enter stack selection:  " STACK
+while [[ -z "$STACK" ]] || [[ "$STACK" != "web" && "$STACK" != "lambda" && "$STACK" != "cicd" ]]
+do
+  echo -e '\e[4mStack Options:\e[0m \e[3mweb\e[0m, \e[3mlambda\e[0m, \e[3mcicd\e[0m \n'
+  read -p "Enter stack selection:  " STACK
 
-echo -e '\e[4mStack Actions:\e[0m \e[3mcreate\e[0m, \e[3mupdate\e[0m, \e[3mdelete\e[0m \n'
-read -p "Enter stack action: " ACTION
+  if [[ -z "$STACK" ]] || [[ "$STACK" != "web" && "$STACK" != "lambda" && "$STACK" != "cicd" ]]
+  then
+    log "\$STACK Input not understood."
+  fi
+done
 
-if [ "$ACTION" != "create" ] && [ "$ACTION" != "update" ] && [ "$ACTION" != "delete" ]
+while  [[ -z "$ACTION" ]] || [[ "$ACTION" != "create" && "$ACTION" != "update" && "$ACTION" != "delete" ]]
+do
+  echo -e '\e[4mStack Actions:\e[0m \e[3mcreate\e[0m, \e[3mupdate\e[0m, \e[3mdelete\e[0m \n'
+  read -p "Enter stack action: " ACTION
+
+  if [[ -z "$ACTION" ]] || [[ "$ACTION" != "create" && "$ACTION" != "update" && "$ACTION" != "delete" ]]
+  then
+    log "Input not understood. See \e[3m--help\e[0m for information on using this command."
+    exit 1
+  fi
+done
+
+while [[ -z "$APPLICATION" ]]
+do
+  read -p "Enter application name:  " APPLICATION
+done
+
+if [[ "$STACK" == "web" || "$STACK" =="lambda" ]] && [[ "$ACTION" == "create" || "$ACTION" == "update" ]]
 then
-  log "Input not understood. See \e[3m--help\e[0m for information on using this command."
-  exit 1
+  while [[ -z "$DOMAIN" ]]
+  do
+    read -p "Enter domain name (without www.): " DOMAIN
+  done
+  while [[ -z "$HOSTED_ZONE" ]]
+  do
+    read -p "Enter hosted zone ID: " HOSTED_ZONE
+  done
+  while [[ -z "$CERTIFICATE_ARN" ]]
+  do
+    read -p "Enter ACM certificate ARN: " CERTIFICATE_ARN
+  done
 fi
 
 if [ "$STACK" == "web" ]
@@ -51,11 +88,6 @@ then
 
   if [ "$ACTION" == "create" ]
   then
-    read -p "Enter application name:  " APPLICATION
-    read -p "Enter domain name (without www.): " DOMAIN
-    read -p "Enter hosted zone ID: " HOSTED_ZONE
-    read -p "Enter ACM certificate ARN: " CERTIFICATE_ARN
-
     log "Creating \e[1m${APPLICATION^}-WebStack\e[0m"
     aws cloudformation create-stack \
           --stack-name "${APPLICATION^}-WebStack" \
@@ -95,11 +127,6 @@ then
 
   if [ "$ACTION" == "create" ]
   then
-    read -p "Enter application name:  " APPLICATION
-    read -p "Enter domain name (without \e[3mwww.\e[0m): " DOMAIN
-    read -p "Enter hosted zone ID: " HOSTED_ZONE
-    read -p "Enter ACM certificate ARN: " CERTIFICATE_ARN
-
     log "Creating \e[1m${APPLICATION^}-LambdaStack\e[0m"
     aws cloudformation create-stack \
           --stack-name "${APPLICATION^}-LambdaStack" \
@@ -112,11 +139,6 @@ then
   
   elif [ "$ACTION" == "update" ]
   then
-    read -p "Enter application name:  " APPLICATION
-    read -p "Enter domain name (without \e[3mwww.\e[0m): " DOMAIN
-    read -p "Enter hosted zone ID: " HOSTED_ZONE
-    read -p "Enter ACM certificate ARN: " CERTIFICATE_ARN
-
     log "Updating \e[1m${APPLICATION^}-LambdaStack\e[0m"
     aws cloudformation update-stack \
             --stack-name "${APPLICATION^}-LambdaStack" \
@@ -125,12 +147,10 @@ then
             --parameters ParameterKey=applicationName,ParameterValue=$APPLICATION \
                           ParameterKey=domainName,ParameterValue=$DOMAIN \
                           ParameterKey=certificateArn,ParameterValue=$CERTIFICATE_ARN \
-                          ParameterKey=hostedZoneId,ParameterValue=$HOSTED_ZONE 
+                          ParameterKey=hostedZoneId,ParameterValue=$HOSTED_ZONE
 
   elif [ "$ACTION" == "delete" ]
   then 
-    read -p "Enter application name:  " APPLICATION
-
     log "Deleting \e[1m${APPLICATION^}-LambdaStack\e[0m"
     aws cloudformation delete-stack \
             --stack-name "${APPLICATION^}-LambdaStack"
@@ -141,8 +161,6 @@ then
 
   if [ "$ACTION" == "create" ]
   then
-    read -p "Enter application name:  " APPLICATION
-
     log "Creating \e[1m${APPLICATION^}-CICDStack\e[0m"
     aws cloudformation create-stack \
           --stack-name "${APPLICATION^}-CICDStack" \
@@ -152,8 +170,6 @@ then
 
   elif [ "$ACTION" == "update" ]
   then
-    read -p "Enter application name:  " APPLICATION
-
     log "Updating \e[1m${APPLICATION^}-CICDStack\e[0m"
     aws cloudformation update-stack \
             --stack-name "${APPLICATION^}-CICDStack" \
@@ -163,8 +179,6 @@ then
 
   elif [ "$ACTION" == "delete" ]
   then 
-    read -p "Enter application name:  " APPLICATION
-
     log "Deleting \e[1m${APPLICATION^}-CICDStack\e[0m"
     aws cloudformation delete-stack \
             --stack-name "${APPLICATION^}-CICDStack"

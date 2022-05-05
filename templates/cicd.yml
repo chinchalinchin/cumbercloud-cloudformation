@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: "Continuous integration and deployment resources for updates to a static website hosted through S3."
+Description: "Continuous integration and deployment resources for updates to a static website hosted through S3 and its supporting serverless backends."
 
 Parameters:
   applicationName:
@@ -9,17 +9,39 @@ Parameters:
     Default: demo
     
 Resources:
-  LambdaECR:
+  LambdaEmailECR:
     Type: AWS::ECR::Repository
-    Description: ECR to hold Lambda image
+    Description: ECR to hold image of email lambda
     Properties:
-      ImageScanningConfiguration: 
+      ImageScanningConfiguration:
         ScanOnPush: true
-      RepositoryName: !Sub "${applicationName}-lambda"
+      RepositoryName: !Sub "${applicationName}-send-email"
       RepositoryPolicyText:
         Version: "2012-10-17"
         Statement:
-          - Sid: ecr-codebuild-policy
+          - Sid: ECRCodeBuildPermissions
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - "ecr:BatchGetImage"
+              - "ecr:GetDownloadUrlForLayer"
+      Tags:
+        - Key: Application
+          Value: !Ref applicationName
+
+  LambdaForwardECR:
+    Type: AWS::ECR::Repository
+    Description: ECR to hold image of email forwarding Lambda
+    Properties:
+      ImageScanningConfiguration: 
+        ScanOnPush: true
+      RepositoryName: !Sub "${applicationName}-forward-email"
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ECRCodeBuildPermissions
             Effect: Allow
             Principal:
               Service:
@@ -271,8 +293,6 @@ Resources:
         - Arn: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${applicationName}-web-pipeline"
           RoleArn: !GetAtt CloudWatchEventExecutor.Arn
           Id: !Sub ${applicationName}-web-codepipeline
-    DependsOn:
-      - WebsiteRepo
 
   LambdaCommitEventRule:
     Type: AWS::Events::Rule
@@ -296,8 +316,6 @@ Resources:
         - Arn: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${applicationName}-lambda-pipeline"
           RoleArn: !GetAtt CloudWatchEventExecutor.Arn
           Id: !Sub ${applicationName}-lambda-codepipeline
-    DependsOn:
-      - LambdaRepo
 
   WebCICDPipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -337,10 +355,12 @@ Resources:
                 - Name: !Sub "${applicationName}-web-build"
               Configuration: 
                 ProjectName: !Ref CodeBuild
-                EnvironmentVariables: !Sub '[{"name":"APPLICATION","value":"${applicationName}","type":"PLAINTEXT"},{ "name":"AWS_ACCOUNT_ID","value":"${AWS::AccountId}","type": "PLAINTEXT"}]'
-    DependsOn:
-      - CodeBuild
-      - WebsiteRepo
+                EnvironmentVariables: !Sub 
+                    - '[{"name":"APPLICATION","value":"${app}","type":"PLAINTEXT"},{ "name": "AWS_ACCOUNT_ID", "value": "${id}", "type": "PLAINTEXT"}, { "name":"DISTRIBUTION_ID", "value": "${dist}", "type": "PLAINTEXT"}]'
+                    - app: !Ref applicationName
+                      id: !Sub ${AWS::AccountId}
+                      dist: 
+                        Fn::ImportValue: "Cumbercloud-WebStack-WebsiteBucketDistributionID"
 
   LambdaCICDPipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -380,7 +400,4 @@ Resources:
                 - Name: !Sub "${applicationName}-lambda-build"
               Configuration: 
                 ProjectName: !Ref CodeBuild
-                EnvironmentVariables: !Sub '[{"name":"APPLICATION","value":"${applicationName}","type":"PLAINTEXT"},{ "name": "AWS_ACCOUNT_ID", "value": "${AWS::AccountId}", "type": "PLAINTEXT"}]'
-    DependsOn:
-      - CodeBuild
-      - WebsiteRepo
+                EnvironmentVariables: !Sub '[{"name":"APPLICATION","value":"${applicationName}","type":"PLAINTEXT"},{ "name":"AWS_ACCOUNT_ID","value":"${AWS::AccountId}","type": "PLAINTEXT"}]'
