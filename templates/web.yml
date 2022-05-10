@@ -10,9 +10,11 @@ Parameters:
   certificateArn:
     Type: String
     Description: ARN of the ACM certificate used to sign requests on the domain.
+    NoEcho: true
   hostedZoneId:
-    Type: String
+    Type: "AWS::Route53::HostedZone::Id"
     Description: Physical ID of the hosted zone where the domain is being served.
+    NoEcho: true
   domainName:
     Type: String
     Description: Domain name that is hosting the application
@@ -24,6 +26,11 @@ Resources:
     Properties:
       AccessControl: LogDeliveryWrite
       BucketName: !Sub "${applicationName}-logs"
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+        BlockPublicPolicy: true
+        BlockPublicAcls: true
 
   WebsiteBucket:
     Type: AWS::S3::Bucket
@@ -39,6 +46,12 @@ Resources:
         LogFilePrefix: 'log/'
       WebsiteConfiguration:
         IndexDocument: 'index.html'
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+        BlockPublicPolicy: true
+        BlockPublicAcls: true
+
 
   WebsiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
