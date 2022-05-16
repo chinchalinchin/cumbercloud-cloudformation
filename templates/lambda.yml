@@ -81,6 +81,29 @@ Resources:
                 Effect: Allow
                 Resource: 
                   - !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${applicationName}-*"
+              - Sid: DynamoGlobalPermissions
+                Effect: Allow
+                Action: 
+                  - dynamodb:List*
+                  - dynamodb:DescribeReservedCapacity
+                  - dynamodb:DescribeLimits
+                  - dynamodb:DescribeTimeToLive
+                Resource: '*'
+              - Sid: DynamoTalePermissions
+                Effect: Allow
+                Action: 
+                  - "dynamodb:BatchGet*",
+                  - "dynamodb:DescribeStream",
+                  - "dynamodb:DescribeTable",
+                  - "dynamodb:Get*",
+                  - "dynamodb:Query",
+                  - "dynamodb:Scan",
+                  - "dynamodb:BatchWrite*",
+                  - "dynamodb:Delete*",
+                  - "dynamodb:Update*",
+                  - "dynamodb:PutItem"
+                Resource: 
+                  - !Sub "arn:aws:dynamodb:*:*:table/${applicationName}*"
       RoleName: !Sub ${applicationName}-lambda-executor
 
   APILoggerRole:
@@ -103,6 +126,22 @@ Resources:
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
+
+  ArticleTable: 
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      AttributeDefinitions: 
+        - 
+          AttributeName: "id"
+          AttributeType: "S"
+      KeySchema: 
+        - 
+          AttributeName: "id"
+          KeyType: "HASH"
+      ProvisionedThroughput: 
+        ReadCapacityUnits: "5"
+        WriteCapacityUnits: "5"
+      TableName: !Sub "${applicationName}-articles"
 
   RegisterLambda:
     Type: AWS::Lambda::Function
