@@ -92,6 +92,27 @@ Resources:
       Tags:
         - Key: Application
           Value: !Ref applicationName
+  
+  LambdaArticleECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageScanningConfiguration: 
+        ScanOnPush: true
+      RepositoryName: !Sub "${applicationName}-article"
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ECRCodeBuildPermissions
+            Effect: Allow
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+            Action:
+              - "ecr:BatchGetImage"
+              - "ecr:GetDownloadUrlForLayer"
+      Tags:
+        - Key: Application
+          Value: !Ref applicationName
 
   WebsiteRepo: 
     Type: AWS::CodeCommit::Repository

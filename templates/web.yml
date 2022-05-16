@@ -105,6 +105,9 @@ Resources:
           Bucket: !GetAtt WebsiteBucketLogs.DomainName
           IncludeCookies: false
           Prefix: 'log/'
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
 
   WebsiteOriginAccessIdentity:
     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
