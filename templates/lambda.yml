@@ -121,6 +121,8 @@ Resources:
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
+        - Key: "Trigger"
+          Value: "apigateway"
 
   TokenLambda:
     Type: AWS::Lambda::Function
@@ -139,6 +141,8 @@ Resources:
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
+        - Key: "Trigger"
+          Value: "apigateway"
           
   ForwardEmailLambda:
     Type: AWS::Lambda::Function
@@ -160,6 +164,8 @@ Resources:
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
+        - Key: "Trigger"
+          Value: "ses"
 
   SendEmailLambda:
     Type: AWS::Lambda::Function
@@ -179,12 +185,14 @@ Resources:
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
+        - Key: "Trigger"
+          Value: "apigateway"
 
   ArticleLambda:
     Type: AWS::Lambda::Function
     Properties: 
-      Description: !Sub Lambda function for registering with ${applicationName} Cognito Userpool.
-      FunctionName: !Sub ${applicationName}-register
+      Description: !Sub Lambda function for retrieving or posting ${applicationName} news feed.
+      FunctionName: !Sub ${applicationName}-article
       Code:
         ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-article:latest
       PackageType: Image
@@ -193,6 +201,8 @@ Resources:
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
+        - Key: "Trigger"
+          Value: "apigateway"
 
   RestAPI:
     Type: AWS::ApiGateway::RestApi
@@ -502,7 +512,8 @@ Resources:
       RestApiId: !Ref RestAPI
       ResourceId: !Ref ArticleResource
       HttpMethod: POST
-      AuthorizationType: !Ref ApiGatewayAuthorizer
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref ApiGatewayAuthorizer
       Integration:
         Type: AWS_PROXY
         # INTEGRATION HTTP METHOD MUST BE POST
@@ -618,4 +629,5 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: 
         !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestAPI}/production/*
+  
   # TODO: THIS: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ses-receiptrule.html

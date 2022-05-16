@@ -26,6 +26,16 @@ while [[ $# -gt 0 ]]; do
       help
       exit 0
       ;;
+    --stack|-stack|--s|-s)
+      STACK=$2
+      shift
+      shift
+      ;;
+    --action|-action|--a|-a)
+      ACTION=$2
+      shift
+      shift
+      ;;
     *)
       log "Input not understood. See \e[3m--help\e[0m for information on using this command."
       exit 1
@@ -35,9 +45,12 @@ done
 
 cd "$TEMPLATE_DIR"
 
-echo -e "---------- \e[2mCUMBERLAND CLOUD APPLICATION\e[0m ---------- \n" 
-echo -e "Provision the necessary AWS infrastructure for a cloud native "
-echo -e "web application through CloudFormation stack templates. \n"
+if [[ -z "$STACK" || -z "$ACTION" || -z "$APPLICATION" ]]
+then
+  echo -e "---------- \e[2mCUMBERLAND CLOUD APPLICATION\e[0m ---------- \n" 
+  echo -e "Provision the necessary AWS infrastructure for a cloud native "
+  echo -e "web application through CloudFormation stack templates. \n"
+fi
 
 while [[ -z "$STACK" ]] || [[ "$STACK" != "web" && "$STACK" != "lambda" && "$STACK" != "cicd" ]]
 do
