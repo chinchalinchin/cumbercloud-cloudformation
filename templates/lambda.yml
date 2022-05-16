@@ -92,21 +92,21 @@ Resources:
               - Sid: DynamoTalePermissions
                 Effect: Allow
                 Action: 
-                  - "dynamodb:BatchGet*",
-                  - "dynamodb:DescribeStream",
-                  - "dynamodb:DescribeTable",
-                  - "dynamodb:Get*",
-                  - "dynamodb:Query",
-                  - "dynamodb:Scan",
-                  - "dynamodb:BatchWrite*",
-                  - "dynamodb:Delete*",
-                  - "dynamodb:Update*",
+                  - "dynamodb:BatchGet*"
+                  - "dynamodb:DescribeStream"
+                  - "dynamodb:DescribeTable"
+                  - "dynamodb:Get*"
+                  - "dynamodb:Query"
+                  - "dynamodb:Scan"
+                  - "dynamodb:BatchWrite*"
+                  - "dynamodb:Delete*"
+                  - "dynamodb:Update*"
                   - "dynamodb:PutItem"
                 Resource: 
                   - !Sub "arn:aws:dynamodb:*:*:table/${applicationName}*"
       RoleName: !Sub ${applicationName}-lambda-executor
 
-  APILoggerRole:
+  APIExecutorRole:
     Type: AWS::IAM::Role
     Properties:
       Description: !Sub Assumed role for API Gateway to accecss ${applicationName} resources.
@@ -142,6 +142,9 @@ Resources:
         ReadCapacityUnits: "5"
         WriteCapacityUnits: "5"
       TableName: !Sub "${applicationName}-articles"
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
 
   RegisterLambda:
     Type: AWS::Lambda::Function
@@ -157,6 +160,7 @@ Resources:
         Variables:
           USERPOOL: !Ref CognitoUserPool
           CLIENT: !Ref APIClient
+          APPLICATION: !Ref applicationName
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
@@ -177,12 +181,34 @@ Resources:
         Variables:
           USERPOOL: !Ref CognitoUserPool
           CLIENT: !Ref APIClient
+          APPLICATION: !Ref applicationName
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
         - Key: "Trigger"
           Value: "apigateway"
-          
+  
+  AuthorizeLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: !Sub Lambda for authorizing ${applicationName} administrators
+      FunctionName: !Sub ${applicationName}-authorize
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-authorize:latest
+      PackageType: Image
+      Role: !GetAtt LambdaExecutorRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          USERPOOL: !Ref CognitoUserPool
+          CLIENT: !Ref APIClient
+          APPLICATION: !Ref applicationName
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
+        - Key: "Trigger"
+          Value: "apigateway"
+
   ForwardEmailLambda:
     Type: AWS::Lambda::Function
     Properties: 
@@ -230,13 +256,35 @@ Resources:
   ArticleLambda:
     Type: AWS::Lambda::Function
     Properties: 
-      Description: !Sub Lambda function for retrieving or posting ${applicationName} news feed.
+      Description: !Sub Lambda function for retrieving the latest or posting new ${applicationName} article.
       FunctionName: !Sub ${applicationName}-article
       Code:
         ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-article:latest
       PackageType: Image
       Role: !GetAtt LambdaExecutorRole.Arn
       Timeout: 60
+      Environment:
+        Variables:
+          APPLICATION: !Ref applicationName
+      Tags:
+        - Key: "Application"
+          Value: !Ref applicationName
+        - Key: "Trigger"
+          Value: "apigateway"
+
+  ArticlesLambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Description: !Sub Lambda function for retrieving ${applicationName} article feed.
+      FunctionName: !Sub ${applicationName}-articles
+      Code:
+        ImageUri: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${applicationName}-articles:latest
+      PackageType: Image
+      Role: !GetAtt LambdaExecutorRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          APPLICATION: !Ref applicationName
       Tags:
         - Key: "Application"
           Value: !Ref applicationName
@@ -255,7 +303,7 @@ Resources:
   CloudWatch:
     Type: AWS::ApiGateway::Account
     Properties:
-      CloudWatchRoleArn: !GetAtt APILoggerRole.Arn
+      CloudWatchRoleArn: !GetAtt APIExecutorRole.Arn
   
   CloudWatchLogGroup:
     Type: AWS::Logs::LogGroup
@@ -317,6 +365,20 @@ Resources:
           Mutable: true
           Name: name
   
+  CognitoUserGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: !Sub "${applicationName}-users"
+      UserPoolId: !Ref CognitoUserPool
+      Description: Basic access group
+  
+  CognitoAdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: !Sub "${applicationName}-admins"
+      UserPoolId: !Ref CognitoUserPool
+      Description: Admin access group
+
   CognitoAdmin:
     Type: "AWS::Cognito::UserPoolUser"
     Properties:
@@ -357,15 +419,26 @@ Resources:
       SupportedIdentityProviders:
         - COGNITO
 
-  ApiGatewayAuthorizer:
+  ApiGatewayUserAuthorizer:
     Type: AWS::ApiGateway::Authorizer
     Properties:
       RestApiId: !Ref RestAPI
-      Name: !Sub ${applicationName}-api-authorizer
+      Name: !Sub ${applicationName}-api-user-authorizer
       Type: COGNITO_USER_POOLS
       IdentitySource: method.request.header.authorization
       ProviderARNs:
         - !GetAtt CognitoUserPool.Arn
+  
+  ApiGatewayAdminAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      RestApiId: !Ref RestAPI
+      Name: !Sub ${applicationName}-api-admin-authorizer
+      Type: CUSTOM
+      IdentitySource: method.request.header.authorization
+      AuthorizerUri: 
+        !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizeLambda.Arn}/invocations'
+      Type: TOKEN
 
   RootResource: 
     Type: 'AWS::ApiGateway::Resource'
@@ -551,8 +624,8 @@ Resources:
       RestApiId: !Ref RestAPI
       ResourceId: !Ref ArticleResource
       HttpMethod: POST
-      AuthorizationType: COGNITO_USER_POOLS
-      AuthorizerId: !Ref ApiGatewayAuthorizer
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref ApiGatewayAdminAuthorizer
       Integration:
         Type: AWS_PROXY
         # INTEGRATION HTTP METHOD MUST BE POST
@@ -580,6 +653,56 @@ Resources:
       AuthorizationType: NONE
       RestApiId: !Ref RestAPI
       ResourceId: !Ref ArticleResource
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            method.response.header.Access-Control-Allow-Methods: "'*'"
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+          ResponseTemplates:
+            application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+
+  ArticlesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestAPI
+      ParentId: !Ref BlogResource
+      PathPart: articles
+  
+  ArticlesGetMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref RestAPI
+      ResourceId: !Ref ArticlesResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        # INTEGRATION HTTP METHOD MUST BE POST
+         # NOTE: API Gateway transforms all incoming requests into POSTS
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ArticlesLambda.Arn}/invocations"
+
+  ArticlesCORSMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId: !Ref RestAPI
+      ResourceId: !Ref ArticlesResource
       HttpMethod: OPTIONS
       Integration:
         IntegrationResponses:
@@ -660,6 +783,15 @@ Resources:
       SourceArn: 
         !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestAPI}/production/*
 
+  AuthorizeApiGatewayInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AuthorizeLambda.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestAPI}/production/*
+
   ArticleApiGatewayInvoke:
     Type: AWS::Lambda::Permission
     Properties:
@@ -669,4 +801,13 @@ Resources:
       SourceArn: 
         !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestAPI}/production/*
   
+  ArticlesApiGatewayInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ArticlesLambda.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: 
+        !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestAPI}/production/*
+
   # TODO: THIS: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ses-receiptrule.html
