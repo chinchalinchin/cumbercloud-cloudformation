@@ -120,6 +120,16 @@ Resources:
                 - apigateway.amazonaws.com
             Action:
               - "sts:AssumeRole"
+      Policies:
+        - PolicyName: !Sub "${applicationName}-gateway-policy"
+          PolicyDocument:
+            Version: "2012-10-07"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - "lambda:InvokeFunction"
+                Resource: 
+                  - !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${applicationName}-*
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
       RoleName: !Sub ${applicationName}-apigateway-executor
